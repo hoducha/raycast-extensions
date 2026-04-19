@@ -9,6 +9,7 @@ import { getPriorityIcon, priorities } from "../helpers/priorities";
 import { displayReminderName } from "../helpers/reminders";
 import { ViewMode } from "../helpers/tasks";
 import { QuickLinkView } from "../home";
+import { useKlogTrackingState } from "../hooks/useKlogTracking";
 import { ViewProps } from "../hooks/useViewTasks";
 
 import TaskActions from "./TaskActions";
@@ -24,6 +25,7 @@ type TaskListItemProps = {
 };
 
 export default function TaskListItem({ task, mode, viewProps, data, setData, quickLinkView }: TaskListItemProps) {
+  const { trackedTask, klogEnabled } = useKlogTrackingState();
   const taskComments = data?.notes.filter((note) => note.item_id === task.id);
   const accessories: List.Item.Accessory[] = [];
   const keywords: string[] = [];
@@ -149,11 +151,19 @@ export default function TaskListItem({ task, mode, viewProps, data, setData, qui
     });
   }
 
+  // Klog tracking indicator (leftmost accessory)
+  if (klogEnabled && trackedTask.taskId === task.id) {
+    accessories.unshift({
+      icon: { source: Icon.Stopwatch, tintColor: Color.Green },
+      tooltip: "Klog: Tracking",
+    });
+  }
+
   return (
     <List.Item
       title={removeMarkdown(task.content)}
+      icon={klogEnabled && trackedTask.taskId === task.id ? { source: Icon.Stopwatch, tintColor: Color.Green } : getPriorityIcon(task)}
       subtitle={task.description}
-      icon={getPriorityIcon(task)}
       keywords={keywords}
       accessories={accessories}
       actions={

@@ -40,6 +40,7 @@ import { displayReminderName } from "../helpers/reminders";
 import { ViewMode, getTaskAppUrl, getTaskUrl } from "../helpers/tasks";
 import { QuickLinkView } from "../home";
 import { useFocusedTask } from "../hooks/useFocusedTask";
+import { useKlogTracking } from "../hooks/useKlogTracking";
 import { ViewProps } from "../hooks/useViewTasks";
 
 import CreateViewActions from "./CreateViewActions";
@@ -74,6 +75,7 @@ export default function TaskActions({
   const { useConfetti } = getPreferenceValues<Preferences>();
 
   const { focusedTask, focusTask, unfocusTask } = useFocusedTask();
+  const { klogEnabled, isTrackingTask, getBookmarkForProject, startKlog, stopKlog } = useKlogTracking();
 
   const projects = data?.projects;
   const comments = data?.notes;
@@ -203,6 +205,7 @@ export default function TaskActions({
   }
 
   const associatedProject = projects?.find((project) => project.id === task.project_id);
+  const klogBookmark = klogEnabled && associatedProject ? getBookmarkForProject(associatedProject.name) : undefined;
 
   const hasComments = comments?.some((comment) => comment.item_id === task.id);
   const subTasks = data?.items.filter((item) => item.parent_id === task.id);
@@ -530,6 +533,27 @@ export default function TaskActions({
           onAction={() => deleteTask(task)}
         />
       </ActionPanel.Section>
+
+      {klogEnabled && (klogBookmark || isTrackingTask(task.id)) ? (
+        <ActionPanel.Section title="Klog">
+          {!isTrackingTask(task.id) && klogBookmark ? (
+            <Action
+              title="Start Klog Tracking"
+              icon={{ source: Icon.Clock, tintColor: Color.Green }}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "k" }}
+              onAction={() => startKlog(task.id, task.content, klogBookmark, task.labels)}
+            />
+          ) : null}
+          {isTrackingTask(task.id) ? (
+            <Action
+              title="Stop Klog Tracking"
+              icon={{ source: Icon.Clock, tintColor: Color.Red }}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "k" }}
+              onAction={() => stopKlog()}
+            />
+          ) : null}
+        </ActionPanel.Section>
+      ) : null}
 
       <ActionPanel.Section>
         {subTasks && subTasks.length > 0 ? (

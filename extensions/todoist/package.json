@@ -658,6 +658,14 @@
       "description": "When enabled, completing a task will trigger a confetti celebration.",
       "default": false,
       "required": false
+    },
+    {
+      "name": "klogPath",
+      "type": "textfield",
+      "required": false,
+      "title": "klog Path",
+      "description": "Absolute path to the klog binary for time tracking integration. Leave empty to disable klog features.",
+      "placeholder": "/opt/homebrew/bin/klog"
     }
   ],
   "dependencies": {
