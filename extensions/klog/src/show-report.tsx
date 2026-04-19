@@ -29,7 +29,6 @@ const DATE_RANGE_LABELS: Record<DateRange, string> = {
 };
 
 const MAX_DAILY_RECORDS = 30;
-const DAILY_BAR_COLOR = "#76b7b2";
 
 export default function ShowReport() {
   const [dateRange, setDateRange] = useState<DateRange>("this-week");
@@ -66,7 +65,11 @@ export default function ShowReport() {
 
     const sharedFields = {
       tags: tagTotals.map((t) => ({ label: t.tag, mins: t.totalMins, color: tagColorMap.get(t.tag) ?? "#888888" })),
-      daily: dailyTotals.map((d) => ({ label: d.date, mins: d.totalMins, color: DAILY_BAR_COLOR })),
+      daily: dailyTotals.map((d) => ({
+        label: d.date,
+        totalMins: d.totalMins,
+        segments: d.tags.map((t) => ({ mins: t.mins, color: tagColorMap.get(t.tag) ?? "#888888" })),
+      })),
     };
 
     const dashData: DashboardData = selectedProject
