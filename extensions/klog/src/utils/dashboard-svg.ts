@@ -7,41 +7,43 @@ function escapeXml(str: string): string {
 }
 
 const SVG_FONT = "system-ui,-apple-system,sans-serif";
-const UNTAGGED_COLOR = "#e0e0e0";
 
-// ─── Appearance-aware palette ─────────────────────────────────────────────────
+// ─── Palette ─────────────────────────────────────────────────────────────────
 
 interface Palette {
-  bg: string;
   title: string;
   stat: string;
   sectionTitle: string;
-  subsectionTitle: string;
+  projectName: string;
   label: string;
   value: string;
   divider: string;
+  track: string;
+  untagged: string;
 }
 
 const LIGHT: Palette = {
-  bg: "#ffffff",
   title: "#111111",
   stat: "#555555",
-  sectionTitle: "#1a1a1a",
-  subsectionTitle: "#777777",
-  label: "#444444",
-  value: "#666666",
-  divider: "#eeeeee",
+  sectionTitle: "#888888",
+  projectName: "#111111",
+  label: "#333333",
+  value: "#555555",
+  divider: "#c8c8c8",
+  track: "#d8d8d8",   // clearly darker than the gray Raycast panel → visible as bar background
+  untagged: "#b4b4b4", // darker than track → readable as a filled segment
 };
 
 const DARK: Palette = {
-  bg: "#1c1c1e",
-  title: "#f2f2f7",
-  stat: "#aeaeb2",
-  sectionTitle: "#e5e5ea",
-  subsectionTitle: "#8e8e93",
-  label: "#c7c7cc",
-  value: "#8e8e93",
-  divider: "#38383a",
+  title: "#f5f5f7",
+  stat: "#a0a0a5",
+  sectionTitle: "#606065",
+  projectName: "#f5f5f7",
+  label: "#c0c0c5",
+  value: "#909095",
+  divider: "#424246",
+  track: "#3e3e42",   // clearly lighter than the dark Raycast panel → visible as bar background
+  untagged: "#585860", // lighter than track → readable as a filled segment
 };
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -74,7 +76,7 @@ export interface DashboardSummary {
 export type DashboardData = {
   summary: DashboardSummary;
   tags?: DashboardBarItem[];
-  daily?: DashboardBarItem[];
+  daily?: DashboardStackedItem[];
 } & (
   | { mode: "all-projects"; projects: DashboardStackedItem[]; tagsPerProject: DashboardProjectGroup[] }
   | { mode: "single-project"; projectTagBreakdown: DashboardBarItem[] }
@@ -82,139 +84,136 @@ export type DashboardData = {
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
-const DASH_W = 660;
-const DASH_PAD_H = 20;
-const DASH_PAD_V = 22;
-const DASH_COL_GAP = 44;
-const DASH_COL_W = Math.floor((DASH_W - 2 * DASH_PAD_H - DASH_COL_GAP) / 2); // 288
+const W = 720;
+const PAD_L = 20;
+const PAD_V = 20;
+const INDENT = 12;
 
-const DASH_LABEL_W = 82;
-const DASH_BAR_X = DASH_LABEL_W + 6;
-const DASH_BAR_MAX_W = 148;
-const DASH_ROW_H = 22;
-const DASH_SECTION_TITLE_H = 22;
-const DASH_PRE_TITLE_GAP = 14;
-const DASH_SUBSECTION_H = 20;
+// Both columns are equal: label 70 + gap 6 + bar 200 + gap 8 + value ~35 ≈ 319px each
+// Left column (relative to translate(PAD_L, contentY))
+const L_BAR_X = 76; // label 70 + gap 6
+const L_BAR_W = 200;
+const L_VAL_X = 284; // L_BAR_X + L_BAR_W + 8
+
+// Vertical divider — ~21px right of left-col content end (20 + 284 + 35 ≈ 339)
+const DIVIDER_X = 360;
+
+// Right column (relative to translate(R_ORIGIN, contentY))
+// right-col content right edge ≈ 378 + 284 + 35 = 697 → 23px right margin
+const R_ORIGIN = 378;
+const R_BAR_X = 76; // label 70 + gap 6
+const R_BAR_W = 200;
+const R_VAL_X = 284; // R_BAR_X + R_BAR_W + 8
+
+// Row sizing
+const ROW_H = 28;
+const BAR_H = 20;
+const BAR_RX = 4;
+
+// Spacing
+const SECTION_GAP = 16;
+const SECTION_H = 20;
+const PROJ_GAP = 10;
+const PROJ_H = 22;
+const SEP_PRE = 10;
+const SEP_POST = 12;
 
 // ─── Column builder ───────────────────────────────────────────────────────────
 
-function makeColumn(idPrefix: string, clipCounter: { n: number }, p: Palette) {
-  const parts: string[] = [];
+function makeCol(barX: number, barW: number, valX: number, idPfx: string, clip: { n: number }, p: Palette) {
+  const el: string[] = [];
+  const defs: string[] = []; // clipPaths collected here → placed in <defs> in the final SVG
   let y = 0;
 
-  function addSummary(summary: DashboardSummary) {
-    if (summary.subtitle) {
-      // Single-project mode: subtitle is the date range, title is the project name
-      parts.push(
-        `<text x="0" y="${y + 18}" font-family="${SVG_FONT}" font-size="18" font-weight="700" fill="${p.title}">${escapeXml(summary.title)}</text>`,
-      );
-      y += 26;
-      parts.push(
-        `<text x="0" y="${y + 13}" font-family="${SVG_FONT}" font-size="13" fill="${p.stat}">${escapeXml(summary.subtitle)}</text>`,
-      );
-      y += 20;
-    } else {
-      // All-projects mode: title is the date range
-      parts.push(
-        `<text x="0" y="${y + 18}" font-family="${SVG_FONT}" font-size="18" font-weight="700" fill="${p.title}">${escapeXml(summary.title)}</text>`,
-      );
-      y += 28;
-    }
+  const sepW = barX + barW + 40;
 
-    const statParts: string[] = [];
-    if (summary.totalMins > 0) statParts.push(`${formatDuration(summary.totalMins)} total`);
-    if (summary.activeDays > 0) statParts.push(`${summary.activeDays} active ${summary.activeDays === 1 ? "day" : "days"}`);
-
-    if (statParts.length > 0) {
-      parts.push(
-        `<text x="0" y="${y + 14}" font-family="${SVG_FONT}" font-size="13" font-weight="500" fill="${p.stat}">${escapeXml(statParts.join("   ·   "))}</text>`,
-      );
-      y += 20;
-    }
-  }
-
-  function addDivider() {
-    y += 10;
-    parts.push(`<line x1="0" y1="${y}" x2="${DASH_COL_W}" y2="${y}" stroke="${p.divider}" stroke-width="1"/>`);
-    y += 12;
-  }
-
-  function addSectionTitle(title: string) {
-    y += DASH_PRE_TITLE_GAP;
-    parts.push(
-      `<text x="0" y="${y + 12}" font-family="${SVG_FONT}" font-size="11" font-weight="700" fill="${p.sectionTitle}" letter-spacing="0.8">${escapeXml(title.toUpperCase())}</text>`,
+  function secTitle(t: string) {
+    y += SECTION_GAP;
+    el.push(
+      `<text x="0" y="${y + 12}" font-family="${SVG_FONT}" font-size="11" font-weight="500" ` +
+        `fill="${p.sectionTitle}" letter-spacing="0.08em">${escapeXml(t.toUpperCase())}</text>`,
     );
-    y += DASH_SECTION_TITLE_H;
+    y += SECTION_H;
   }
 
-  function addSubsectionTitle(title: string) {
-    y += 6;
-    parts.push(
-      `<text x="0" y="${y + 12}" font-family="${SVG_FONT}" font-size="12" font-weight="600" fill="${p.subsectionTitle}">${escapeXml(title)}</text>`,
+  function sep() {
+    y += SEP_PRE;
+    el.push(`<line x1="0" y1="${y}" x2="${sepW}" y2="${y}" stroke="${p.divider}" stroke-width="0.5"/>`);
+    y += SEP_POST;
+  }
+
+  function projHeader(name: string) {
+    y += PROJ_GAP;
+    el.push(
+      `<text x="0" y="${y + 13}" font-family="${SVG_FONT}" font-size="13" font-weight="600" fill="${p.projectName}">${escapeXml(name)}</text>`,
     );
-    y += DASH_SUBSECTION_H;
+    y += PROJ_H;
   }
 
-  function addBarRows(items: DashboardBarItem[]) {
-    const max = Math.max(...items.map((i) => i.mins));
-    for (const item of items) {
-      const barW = max > 0 ? Math.max(Math.round((item.mins / max) * DASH_BAR_MAX_W), 3) : 3;
-      const midY = y + DASH_ROW_H / 2;
-      const textY = midY + 4;
-      parts.push(
-        `<text x="${DASH_LABEL_W}" y="${textY}" text-anchor="end" font-family="${SVG_FONT}" font-size="12" fill="${p.label}">${escapeXml(item.label)}</text>`,
-        `<rect x="${DASH_BAR_X}" y="${midY - 7}" width="${barW}" height="14" fill="${item.color}" rx="3"/>`,
-        `<text x="${DASH_BAR_X + barW + 5}" y="${textY}" font-family="${SVG_FONT}" font-size="12" fill="${p.value}">${formatDuration(item.mins)}</text>`,
-      );
-      y += DASH_ROW_H;
-    }
+  function simpleBar(label: string, mins: number, color: string, maxMins: number, indent = 0) {
+    const bw = maxMins > 0 ? Math.max(Math.round((mins / maxMins) * barW), 3) : 3;
+    const by = y + Math.round((ROW_H - BAR_H) / 2);
+    const ty = y + Math.round(ROW_H / 2) + 4;
+    el.push(
+      `<text x="${indent}" y="${ty}" font-family="${SVG_FONT}" font-size="12" fill="${p.label}">${escapeXml(label)}</text>`,
+      `<rect x="${barX}" y="${by}" width="${barW}" height="${BAR_H}" fill="${p.track}" rx="${BAR_RX}"/>`,
+      `<rect x="${barX}" y="${by}" width="${bw}" height="${BAR_H}" fill="${color}" rx="${BAR_RX}"/>`,
+      `<text x="${valX}" y="${ty}" font-family="${SVG_FONT}" font-size="12" fill="${p.value}">${formatDuration(mins)}</text>`,
+    );
+    y += ROW_H;
   }
 
-  function addStackedBarRows(items: DashboardStackedItem[]) {
-    const maxTotal = Math.max(...items.map((i) => i.totalMins));
-    for (const item of items) {
-      const barW = maxTotal > 0 ? Math.max(Math.round((item.totalMins / maxTotal) * DASH_BAR_MAX_W), 3) : 3;
-      const midY = y + DASH_ROW_H / 2;
-      const textY = midY + 4;
-      const barY = midY - 7;
-      const barH = 14;
+  function simpleBarRows(items: DashboardBarItem[], indent = 0) {
+    const max = items.reduce((m, i) => Math.max(m, i.mins), 0);
+    for (const item of items) simpleBar(item.label, item.mins, item.color, max, indent);
+  }
 
-      const taggedMins = item.segments.reduce((s, seg) => s + seg.mins, 0);
+  function stackedBarRows(items: DashboardStackedItem[]) {
+    const maxTotal = items.reduce((m, i) => Math.max(m, i.totalMins), 0);
+    for (const item of items) {
+      const bw = maxTotal > 0 ? Math.max(Math.round((item.totalMins / maxTotal) * barW), 3) : 3;
+      const by = y + Math.round((ROW_H - BAR_H) / 2);
+      const ty = y + Math.round(ROW_H / 2) + 4;
+
+      const taggedMins = item.segments.reduce((s, sg) => s + sg.mins, 0);
       const untaggedMins = Math.max(item.totalMins - taggedMins, 0);
-      const allSegs = [...item.segments, ...(untaggedMins > 0 ? [{ mins: untaggedMins, color: UNTAGGED_COLOR }] : [])];
+      const segs = [...item.segments, ...(untaggedMins > 0 ? [{ mins: untaggedMins, color: p.untagged }] : [])];
 
-      const clipId = `${idPrefix}${clipCounter.n++}`;
-      let segX = DASH_BAR_X;
-      const rects = allSegs
-        .map((seg) => {
-          const segW = item.totalMins > 0 ? Math.round((seg.mins / item.totalMins) * barW) : 0;
-          const r = `<rect x="${segX}" y="${barY}" width="${Math.max(segW, 0)}" height="${barH}" fill="${seg.color}"/>`;
-          segX += segW;
+      const clipId = `${idPfx}${clip.n++}`;
+      // clipPath goes into <defs> so renderers can always resolve the ID reference
+      defs.push(`<clipPath id="${clipId}"><rect x="${barX}" y="${by}" width="${bw}" height="${BAR_H}" rx="${BAR_RX}"/></clipPath>`);
+
+      let sx = barX;
+      const segRects = segs
+        .map((sg) => {
+          const sw = item.totalMins > 0 ? Math.round((sg.mins / item.totalMins) * bw) : 0;
+          const r = `<rect x="${sx}" y="${by}" width="${Math.max(sw, 0)}" height="${BAR_H}" fill="${sg.color}"/>`;
+          sx += sw;
           return r;
         })
         .join("");
 
-      parts.push(
-        `<text x="${DASH_LABEL_W}" y="${textY}" text-anchor="end" font-family="${SVG_FONT}" font-size="12" fill="${p.label}">${escapeXml(item.label)}</text>`,
-        `<clipPath id="${clipId}"><rect x="${DASH_BAR_X}" y="${barY}" width="${barW}" height="${barH}" rx="3"/></clipPath>`,
-        `<g clip-path="url(#${clipId})">${rects}</g>`,
-        `<text x="${DASH_BAR_X + barW + 5}" y="${textY}" font-family="${SVG_FONT}" font-size="12" fill="${p.value}">${formatDuration(item.totalMins)}</text>`,
+      el.push(
+        `<text x="0" y="${ty}" font-family="${SVG_FONT}" font-size="12" fill="${p.label}">${escapeXml(item.label)}</text>`,
+        `<rect x="${barX}" y="${by}" width="${barW}" height="${BAR_H}" fill="${p.track}" rx="${BAR_RX}"/>`,
+        `<g clip-path="url(#${clipId})">${segRects}</g>`,
+        `<text x="${valX}" y="${ty}" font-family="${SVG_FONT}" font-size="12" fill="${p.value}">${formatDuration(item.totalMins)}</text>`,
       );
-      y += DASH_ROW_H;
+      y += ROW_H;
     }
   }
 
   return {
-    get height() {
+    get h() {
       return y;
     },
-    addSummary,
-    addDivider,
-    addSectionTitle,
-    addSubsectionTitle,
-    addBarRows,
-    addStackedBarRows,
-    render: () => parts.join("\n"),
+    secTitle,
+    sep,
+    projHeader,
+    simpleBarRows,
+    stackedBarRows,
+    render: () => el.join("\n"),
+    renderDefs: () => defs.join("\n"),
   };
 }
 
@@ -222,56 +221,85 @@ function makeColumn(idPrefix: string, clipCounter: { n: number }, p: Palette) {
 
 export function generateDashboardSvg(data: DashboardData, appearance: "light" | "dark"): string {
   const p = appearance === "dark" ? DARK : LIGHT;
-  const clipCounter = { n: 0 };
-  const left = makeColumn("l", clipCounter, p);
-  const right = makeColumn("r", clipCounter, p);
+  const clip = { n: 0 };
 
-  // ── Left column ────────────────────────────────────────────────────────────
-  left.addSummary(data.summary);
+  const lc = makeCol(L_BAR_X, L_BAR_W, L_VAL_X, "l", clip, p);
+  const rc = makeCol(R_BAR_X, R_BAR_W, R_VAL_X, "r", clip, p);
 
+  // ── Left column ──────────────────────────────────────────────────────────────
   if (data.mode === "single-project") {
     if (data.projectTagBreakdown.length > 0) {
-      left.addDivider();
-      left.addSectionTitle("Tags");
-      left.addBarRows(data.projectTagBreakdown);
+      lc.secTitle("Tags");
+      lc.simpleBarRows(data.projectTagBreakdown);
     }
   } else {
     if (data.projects.length > 0) {
-      left.addDivider();
-      left.addSectionTitle("Projects");
-      left.addStackedBarRows(data.projects);
+      lc.secTitle("Projects");
+      lc.stackedBarRows(data.projects);
     }
     if (data.tagsPerProject.length > 0) {
-      left.addDivider();
-      left.addSectionTitle("Tags per Project");
-      for (const group of data.tagsPerProject) {
-        left.addSubsectionTitle(`${group.projectName} (${formatDuration(group.projectTotal)})`);
-        left.addBarRows(group.items);
+      lc.sep();
+      lc.secTitle("Tags per Project");
+      for (const g of data.tagsPerProject) {
+        lc.projHeader(g.projectName);
+        lc.simpleBarRows(g.items, INDENT);
       }
     }
   }
 
-  // ── Right column ───────────────────────────────────────────────────────────
-  const showRightTags = data.mode === "all-projects" && data.tags && data.tags.length > 0;
-
-  if (showRightTags && data.tags) {
-    right.addSectionTitle("Tags");
-    right.addBarRows(data.tags);
+  // ── Right column ─────────────────────────────────────────────────────────────
+  const hasTags = data.mode === "all-projects" && data.tags && data.tags.length > 0;
+  if (hasTags && data.tags) {
+    rc.secTitle("Tags");
+    rc.simpleBarRows(data.tags);
   }
-
   if (data.daily && data.daily.length > 0) {
-    if (showRightTags) right.addDivider();
-    right.addSectionTitle("Daily");
-    right.addBarRows(data.daily);
+    if (hasTags) rc.sep();
+    rc.secTitle("Daily");
+    rc.stackedBarRows(data.daily);
   }
 
-  // ── Compose ────────────────────────────────────────────────────────────────
-  const totalH = Math.max(left.height, right.height) + DASH_PAD_V * 2;
-  const rightX = DASH_PAD_H + DASH_COL_W + DASH_COL_GAP;
+  // ── Header (full-width) ──────────────────────────────────────────────────────
+  const hdr: string[] = [];
+  let hy = PAD_V;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${DASH_W}" height="${totalH}">
-  <rect width="${DASH_W}" height="${totalH}" fill="${p.bg}" rx="10"/>
-  <g transform="translate(${DASH_PAD_H},${DASH_PAD_V})">${left.render()}</g>
-  <g transform="translate(${rightX},${DASH_PAD_V})">${right.render()}</g>
-</svg>`;
+  hdr.push(
+    `<text x="${PAD_L}" y="${hy + 22}" font-family="${SVG_FONT}" font-size="22" font-weight="500" fill="${p.title}">${escapeXml(data.summary.title)}</text>`,
+  );
+  hy += 30;
+
+  const statParts: string[] = [];
+  if (data.summary.subtitle) statParts.push(data.summary.subtitle);
+  if (data.summary.totalMins > 0) statParts.push(`${formatDuration(data.summary.totalMins)} total`);
+  if (data.summary.activeDays > 0) {
+    const dayLabel = data.summary.activeDays === 1 ? "day" : "days";
+    statParts.push(`${data.summary.activeDays} active ${dayLabel}`);
+  }
+  if (statParts.length > 0) {
+    hdr.push(
+      `<text x="${PAD_L}" y="${hy + 14}" font-family="${SVG_FONT}" font-size="13" fill="${p.stat}">${escapeXml(statParts.join("   ·   "))}</text>`,
+    );
+    hy += 20;
+  }
+
+  hy += 8;
+  hdr.push(`<line x1="${PAD_L}" y1="${hy}" x2="${W - 30}" y2="${hy}" stroke="${p.divider}" stroke-width="0.5"/>`);
+  hy += 16;
+
+  const contentY = hy;
+  const colH = Math.max(lc.h, rc.h);
+
+  // ── Compose ──────────────────────────────────────────────────────────────────
+  const totalH = contentY + colH + PAD_V;
+  const allDefs = [lc.renderDefs(), rc.renderDefs()].filter(Boolean).join("\n");
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${totalH}">`,
+    allDefs ? `<defs>${allDefs}</defs>` : "",
+    ...hdr,
+    `<line x1="${DIVIDER_X}" y1="${contentY}" x2="${DIVIDER_X}" y2="${contentY + colH}" stroke="${p.divider}" stroke-width="0.5"/>`,
+    `<g transform="translate(${PAD_L},${contentY})">${lc.render()}</g>`,
+    `<g transform="translate(${R_ORIGIN},${contentY})">${rc.render()}</g>`,
+    `</svg>`,
+  ].filter(Boolean).join("\n");
 }
