@@ -24,13 +24,27 @@ export interface DateFilter {
   to?: string;
 }
 
-export type DateRange = "today" | "this-week" | "this-month" | "last-month" | "all";
+export type DateRange =
+  | "today"
+  | "this-week"
+  | "this-month"
+  | "last-30-days"
+  | "last-90-days"
+  | "this-year"
+  | "last-year"
+  | "all";
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function fmtDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function daysAgo(n: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d;
 }
 
 export function getDateFilter(range: DateRange): DateFilter {
@@ -53,10 +67,21 @@ export function getDateFilter(range: DateRange): DateFilter {
     return { from: fmtDate(new Date(now.getFullYear(), now.getMonth(), 1)), to: fmtDate(now) };
   }
 
-  // last-month
-  const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
-  return { from: fmtDate(firstDay), to: fmtDate(lastDay) };
+  if (range === "last-30-days") {
+    return { from: fmtDate(daysAgo(30)), to: fmtDate(now) };
+  }
+
+  if (range === "last-90-days") {
+    return { from: fmtDate(daysAgo(90)), to: fmtDate(now) };
+  }
+
+  if (range === "this-year") {
+    return { from: `${now.getFullYear()}-01-01`, to: fmtDate(now) };
+  }
+
+  // last-year
+  const y = now.getFullYear() - 1;
+  return { from: `${y}-01-01`, to: `${y}-12-31` };
 }
 
 export function filterProjects(projects: KlogProject[], filter: DateFilter): KlogProject[] {
@@ -148,18 +173,25 @@ export function getDailyTotals(projects: KlogProject[]): DayTotal[] {
         .sort((a, b) => b.mins - a.mins),
     }))
     .filter((d) => d.totalMins > 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => b.date.localeCompare(a.date)); // DESC: most recent first
+}
+
+export function countActiveDays(projects: KlogProject[]): number {
+  const dates = new Set<string>();
+  for (const project of projects) {
+    for (const record of project.data.records) {
+      if (record.total_mins > 0) dates.add(record.date);
+    }
+  }
+  return dates.size;
 }
 
 // ─── Duration formatting ──────────────────────────────────────────────────────
 
 export function formatDuration(mins: number): string {
   if (mins <= 0) return "0m";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h${m}m`;
+  if (mins < 60) return `${mins}m`;
+  return `${(mins / 60).toFixed(1)}h`;
 }
 
 // ─── Tag colors ───────────────────────────────────────────────────────────────
@@ -182,11 +214,19 @@ export function getTagColorMap(tags: string[]): Map<string, string> {
   return new Map(sorted.map((tag, i) => [tag, TAG_COLORS[i % TAG_COLORS.length]]));
 }
 
-// ─── SVG chart ────────────────────────────────────────────────────────────────
+// ─── SVG helpers ──────────────────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+const UNTAGGED_COLOR = "#e0e0e0";
+const SVG_BG = "#ffffff";
+const SVG_LABEL_COLOR = "#444444";
+const SVG_VALUE_COLOR = "#666666";
+const SVG_FONT = "system-ui,-apple-system,sans-serif";
+
+// ─── Simple bar chart ─────────────────────────────────────────────────────────
 
 export function generateBarChartSvg(items: { label: string; mins: number; color: string }[]): string {
   if (items.length === 0) return "";
@@ -210,15 +250,84 @@ export function generateBarChartSvg(items: { label: string; mins: number; color:
       const textY = midY + 4;
 
       return [
-        `<text x="${PAD_H + LABEL_W - 8}" y="${textY}" text-anchor="end" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="#444444">${escapeXml(item.label)}</text>`,
+        `<text x="${PAD_H + LABEL_W - 8}" y="${textY}" text-anchor="end" font-family="${SVG_FONT}" font-size="13" fill="${SVG_LABEL_COLOR}">${escapeXml(item.label)}</text>`,
         `<rect x="${PAD_H + LABEL_W}" y="${midY - 9}" width="${barW}" height="18" fill="${item.color}" rx="4"/>`,
-        `<text x="${PAD_H + LABEL_W + barW + 8}" y="${textY}" font-family="system-ui,-apple-system,sans-serif" font-size="13" fill="#666666">${formatDuration(item.mins)}</text>`,
+        `<text x="${PAD_H + LABEL_W + barW + 8}" y="${textY}" font-family="${SVG_FONT}" font-size="13" fill="${SVG_VALUE_COLOR}">${formatDuration(item.mins)}</text>`,
       ].join("\n      ");
     })
     .join("\n    ");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}">
-  <rect width="${totalW}" height="${totalH}" fill="#ffffff" rx="10"/>
+  <rect width="${totalW}" height="${totalH}" fill="${SVG_BG}" rx="10"/>
+  ${rows}
+</svg>`;
+}
+
+// ─── Stacked bar chart ────────────────────────────────────────────────────────
+
+export function generateStackedBarChartSvg(
+  items: {
+    label: string;
+    totalMins: number;
+    segments: { mins: number; color: string }[];
+  }[],
+): string {
+  if (items.length === 0) return "";
+
+  const maxTotal = Math.max(...items.map((i) => i.totalMins));
+  const BAR_MAX_W = 260;
+  const LABEL_W = 130;
+  const ROW_H = 32;
+  const PAD_H = 20;
+  const PAD_V = 16;
+  const VALUE_W = 60;
+
+  const totalW = PAD_H + LABEL_W + BAR_MAX_W + VALUE_W + PAD_H;
+  const totalH = PAD_V + items.length * ROW_H + PAD_V;
+
+  const rows = items
+    .map((item, i) => {
+      const barW = maxTotal > 0 ? Math.max(Math.round((item.totalMins / maxTotal) * BAR_MAX_W), 3) : 3;
+      const y = PAD_V + i * ROW_H;
+      const midY = y + ROW_H / 2;
+      const textY = midY + 4;
+      const barX = PAD_H + LABEL_W;
+      const barY = midY - 9;
+      const barH = 18;
+
+      // Build colored segments, clipped to barW
+      const taggedMins = item.segments.reduce((s, seg) => s + seg.mins, 0);
+      const untaggedMins = Math.max(item.totalMins - taggedMins, 0);
+
+      const allSegments = [
+        ...item.segments,
+        ...(untaggedMins > 0 ? [{ mins: untaggedMins, color: UNTAGGED_COLOR }] : []),
+      ];
+
+      let segX = barX;
+      const rects = allSegments.map((seg) => {
+        const segW = item.totalMins > 0 ? Math.round((seg.mins / item.totalMins) * barW) : 0;
+        const rect = `<rect x="${segX}" y="${barY}" width="${Math.max(segW, 0)}" height="${barH}" fill="${seg.color}"/>`;
+        segX += segW;
+        return rect;
+      });
+
+      // Clip rect for rounded corners over the stacked rects
+      const clipId = `clip-${i}`;
+      const clipPath = `<clipPath id="${clipId}"><rect x="${barX}" y="${barY}" width="${barW}" height="${barH}" rx="4"/></clipPath>`;
+      const stackedGroup = `<g clip-path="url(#${clipId})">${rects.join("")}</g>`;
+
+      return [
+        clipPath,
+        `<text x="${barX - 8}" y="${textY}" text-anchor="end" font-family="${SVG_FONT}" font-size="13" fill="${SVG_LABEL_COLOR}">${escapeXml(item.label)}</text>`,
+        stackedGroup,
+        `<text x="${barX + barW + 8}" y="${textY}" font-family="${SVG_FONT}" font-size="13" fill="${SVG_VALUE_COLOR}">${formatDuration(item.totalMins)}</text>`,
+      ].join("\n      ");
+    })
+    .join("\n    ");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}">
+  <rect width="${totalW}" height="${totalH}" fill="${SVG_BG}" rx="10"/>
   ${rows}
 </svg>`;
 }
