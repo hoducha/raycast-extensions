@@ -1,7 +1,14 @@
 import { closeMainWindow, LaunchProps, popToRoot, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 
-import { buildSummary, extractErrorMessage, hasOpenRangeConflict, normalizeBookmark, normalizeTags, startTracking } from "./klog";
+import {
+  buildSummary,
+  extractErrorMessage,
+  hasOpenRangeConflict,
+  normalizeBookmark,
+  normalizeTags,
+  startTracking,
+} from "./klog";
 
 interface StartTrackingArguments {
   text: string;

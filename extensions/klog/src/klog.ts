@@ -1,11 +1,13 @@
 import { getPreferenceValues } from "@raycast/api";
 import { exec } from "child_process";
+import { homedir } from "os";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
 interface KlogPreferences {
   klogPath: string;
+  klogDir?: string;
   editorApp?: string;
 }
 
@@ -47,6 +49,12 @@ function isCommandNotFound(error: unknown): boolean {
 function getKlogPath(): string {
   const { klogPath } = getPreferenceValues<KlogPreferences>();
   return klogPath || "klog";
+}
+
+export function getKlogDir(): string {
+  const { klogDir } = getPreferenceValues<KlogPreferences>();
+  const dir = klogDir?.trim() ?? "";
+  return dir.startsWith("~") ? dir.replace("~", homedir()) : dir;
 }
 
 export function getEditorApp(): string | undefined {
@@ -119,6 +127,13 @@ export function buildSummary(taskName: string, tags: string[]): string {
 }
 
 // ─── klog CLI wrappers ───────────────────────────────────────────────
+
+/**
+ * Run `klog json <filePath>` and return the raw JSON string.
+ */
+export async function execKlogJson(filePath: string): Promise<string> {
+  return execKlog(["json", filePath]);
+}
 
 /**
  * Start a new time tracking entry.

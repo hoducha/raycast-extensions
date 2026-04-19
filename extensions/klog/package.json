@@ -65,6 +65,13 @@
           "required": true
         }
       ]
+    },
+    {
+      "name": "show-report",
+      "title": "Show Report",
+      "subtitle": "klog",
+      "description": "View time tracking reports from your klog files.",
+      "mode": "view"
     }
   ],
   "preferences": [
@@ -76,6 +83,14 @@
       "description": "Absolute path to the klog binary. Leave as 'klog' if it's in your PATH.",
       "default": "klog",
       "placeholder": "/opt/homebrew/bin/klog"
+    },
+    {
+      "name": "klogDir",
+      "type": "textfield",
+      "required": false,
+      "title": "klog Directory",
+      "description": "Directory containing your .klg files. Used by the Show Report command.",
+      "placeholder": "~/klog"
     },
     {
       "name": "editorApp",
