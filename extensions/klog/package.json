@@ -1,0 +1,108 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "klog",
+  "title": "Klog",
+  "description": "Track your time with klog – start, stop, and manage time tracking from Raycast",
+  "icon": "icon.png",
+  "author": "thomaslombart",
+  "license": "MIT",
+  "categories": [
+    "Productivity"
+  ],
+  "commands": [
+    {
+      "name": "start-tracking",
+      "title": "Start Tracking",
+      "subtitle": "klog",
+      "description": "Start a new klog time tracking entry.",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "name": "text",
+          "placeholder": "Task name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "tags",
+          "placeholder": "#tag1 #tag2",
+          "type": "text"
+        },
+        {
+          "name": "bookmark",
+          "placeholder": "Bookmark",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "stop-tracking",
+      "title": "Stop Tracking",
+      "subtitle": "klog",
+      "description": "Stop the current klog time tracking entry.",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "name": "bookmark",
+          "placeholder": "Bookmark",
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "edit-bookmark",
+      "title": "Edit Bookmark",
+      "subtitle": "klog",
+      "description": "Open a klog bookmark file in your editor.",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "name": "bookmark",
+          "placeholder": "Bookmark",
+          "type": "text",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "klogPath",
+      "type": "textfield",
+      "required": false,
+      "title": "klog Path",
+      "description": "Absolute path to the klog binary. Leave as 'klog' if it's in your PATH.",
+      "default": "klog",
+      "placeholder": "/opt/homebrew/bin/klog"
+    },
+    {
+      "name": "editorApp",
+      "type": "textfield",
+      "required": false,
+      "title": "Editor Application",
+      "description": "Application name to open .klg files with. Leave empty to use the system default.",
+      "placeholder": "Visual Studio Code"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.100.0",
+    "@raycast/utils": "^1.19.1"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.0.4",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.1.0",
+    "eslint": "^9.24.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "lint": "ray lint",
+    "fix": "ray lint --fix",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}
