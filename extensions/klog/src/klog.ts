@@ -13,15 +13,16 @@ interface KlogPreferences {
 
 /**
  * Extract a user-friendly error message from a klog exec failure.
- * Prefers stderr (klog's own message) over the raw exec error.
+ * klog writes error messages to stdout (not stderr), so both streams are checked.
  */
 export function extractErrorMessage(error: unknown): string {
-  const err = error as { stderr?: string; message?: string };
-  const stderr = err.stderr?.trim();
+  const err = error as { stderr?: string; stdout?: string; message?: string };
+  // klog writes error messages to stdout (not stderr)
+  const output = (err.stderr?.trim() || err.stdout?.trim()) ?? "";
 
-  if (stderr) {
+  if (output) {
     // Clean up klog's error format: "Error: Manipulation failed\nThere is already an open range..."
-    return stderr
+    return output
       .split("\n")
       .map((line: string) => line.replace(/^Error:\s*/i, "").trim())
       .filter(Boolean)
@@ -32,18 +33,21 @@ export function extractErrorMessage(error: unknown): string {
 }
 
 export function hasOpenRangeConflict(error: unknown): boolean {
-  const err = error as { stderr?: string };
-  return err.stderr?.includes("There is already an open range") ?? false;
+  const err = error as { stderr?: string; stdout?: string };
+  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  return output.includes("There is already an open range");
 }
 
 export function hasNoOpenRange(error: unknown): boolean {
-  const err = error as { stderr?: string };
-  return err.stderr?.includes("No open time range") ?? false;
+  const err = error as { stderr?: string; stdout?: string };
+  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  return output.includes("No open time range");
 }
 
 function isCommandNotFound(error: unknown): boolean {
-  const err = error as { stderr?: string; message?: string };
-  return (err.stderr?.includes("command not found") || err.message?.includes("ENOENT")) ?? false;
+  const err = error as { stderr?: string; stdout?: string; message?: string };
+  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  return output.includes("command not found") || (err.message?.includes("ENOENT") ?? false);
 }
 
 function getKlogPath(): string {

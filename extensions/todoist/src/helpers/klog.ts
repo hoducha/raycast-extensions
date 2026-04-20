@@ -35,8 +35,9 @@ async function execKlog(args: string[]): Promise<string> {
     const { stdout } = await execAsync(command);
     return stdout.trim();
   } catch (error: unknown) {
-    const err = error as { stderr?: string; message?: string };
-    if (err.stderr?.includes("command not found") || err.message?.includes("ENOENT")) {
+    const err = error as { stderr?: string; stdout?: string; message?: string };
+    const output = (err.stderr ?? "") + (err.stdout ?? "");
+    if (output.includes("command not found") || err.message?.includes("ENOENT")) {
       throw new Error("klog not found. Verify the klog path in the extension preferences.");
     }
     throw error;
@@ -46,11 +47,12 @@ async function execKlog(args: string[]): Promise<string> {
 // ─── Error helpers ───────────────────────────────────────────────────
 
 export function extractErrorMessage(error: unknown): string {
-  const err = error as { stderr?: string; message?: string };
-  const stderr = err.stderr?.trim();
+  const err = error as { stderr?: string; stdout?: string; message?: string };
+  // klog writes error messages to stdout (not stderr)
+  const output = (err.stderr?.trim() || err.stdout?.trim()) ?? "";
 
-  if (stderr) {
-    return stderr
+  if (output) {
+    return output
       .split("\n")
       .map((line: string) => line.replace(/^Error:\s*/i, "").trim())
       .filter(Boolean)
@@ -61,13 +63,15 @@ export function extractErrorMessage(error: unknown): string {
 }
 
 export function hasOpenRangeConflict(error: unknown): boolean {
-  const err = error as { stderr?: string };
-  return err.stderr?.includes("There is already an open range") ?? false;
+  const err = error as { stderr?: string; stdout?: string };
+  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  return output.includes("There is already an open range");
 }
 
 export function hasNoOpenRange(error: unknown): boolean {
-  const err = error as { stderr?: string };
-  return err.stderr?.includes("No open time range") ?? false;
+  const err = error as { stderr?: string; stdout?: string };
+  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  return output.includes("No open time range");
 }
 
 // ─── Bookmark helpers ────────────────────────────────────────────────
