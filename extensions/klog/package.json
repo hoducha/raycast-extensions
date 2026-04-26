@@ -99,6 +99,15 @@
       "title": "Editor Application",
       "description": "Application name to open .klg files with. Leave empty to use the system default.",
       "placeholder": "Visual Studio Code"
+    },
+    {
+      "name": "skipSessionsShorterThanMinutes",
+      "type": "textfield",
+      "required": false,
+      "title": "Skip Sessions Shorter Than (Minutes)",
+      "description": "When greater than 0, sessions shorter than this are removed after stopping tracking.",
+      "default": "0",
+      "placeholder": "5"
     }
   ],
   "dependencies": {

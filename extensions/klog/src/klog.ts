@@ -1,5 +1,6 @@
 import { getPreferenceValues } from "@raycast/api";
 import { exec } from "child_process";
+import { readFile, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { promisify } from "util";
 
@@ -9,6 +10,7 @@ interface KlogPreferences {
   klogPath: string;
   klogDir?: string;
   editorApp?: string;
+  skipSessionsShorterThanMinutes?: string;
 }
 
 /**
@@ -18,7 +20,7 @@ interface KlogPreferences {
 export function extractErrorMessage(error: unknown): string {
   const err = error as { stderr?: string; stdout?: string; message?: string };
   // klog writes error messages to stdout (not stderr)
-  const output = (err.stderr?.trim() || err.stdout?.trim()) ?? "";
+  const output = getCombinedOutput(err, true);
 
   if (output) {
     // Clean up klog's error format: "Error: Manipulation failed\nThere is already an open range..."
@@ -34,25 +36,42 @@ export function extractErrorMessage(error: unknown): string {
 
 export function hasOpenRangeConflict(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string };
-  const output = (err.stderr ?? "") + (err.stdout ?? "");
-  return output.includes("There is already an open range");
+  return getCombinedOutput(err).includes("There is already an open range");
 }
 
 export function hasNoOpenRange(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string };
-  const output = (err.stderr ?? "") + (err.stdout ?? "");
-  return output.includes("No open time range");
+  return getCombinedOutput(err).includes("No open time range");
 }
 
 function isCommandNotFound(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string; message?: string };
-  const output = (err.stderr ?? "") + (err.stdout ?? "");
+  const output = getCombinedOutput(err);
   return output.includes("command not found") || (err.message?.includes("ENOENT") ?? false);
+}
+
+function getCombinedOutput(err: { stderr?: string; stdout?: string }, trimStreams = false): string {
+  if (trimStreams) {
+    return (err.stderr?.trim() || err.stdout?.trim()) ?? "";
+  }
+
+  return (err.stderr ?? "") + (err.stdout ?? "");
 }
 
 function getKlogPath(): string {
   const { klogPath } = getPreferenceValues<KlogPreferences>();
   return klogPath || "klog";
+}
+
+function parseNonNegativeNumber(raw: string | undefined): number {
+  const parsed = Number.parseFloat(raw?.trim() ?? "");
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+export function getSkipSessionsShorterThanMinutes(): number {
+  const { skipSessionsShorterThanMinutes } = getPreferenceValues<KlogPreferences>();
+  return parseNonNegativeNumber(skipSessionsShorterThanMinutes);
 }
 
 export function getKlogDir(): string {
@@ -166,4 +185,14 @@ export async function resolveBookmarkPath(bookmark: string): Promise<string> {
   const normalized = normalizeBookmark(bookmark);
   const output = await execKlog(["bookmarks", "info", `@${normalized}`]);
   return output.trim();
+}
+
+export async function snapshotBookmarkFile(bookmark: string): Promise<string> {
+  const filePath = await resolveBookmarkPath(bookmark);
+  return readFile(filePath, "utf8");
+}
+
+export async function restoreBookmarkSnapshot(bookmark: string, snapshot: string): Promise<void> {
+  const filePath = await resolveBookmarkPath(bookmark);
+  await writeFile(filePath, snapshot, "utf8");
 }

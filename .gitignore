@@ -180,3 +180,4 @@ bun.lock
 scripts/internal/**
 .claude**
 .cursor/**
+klogreport

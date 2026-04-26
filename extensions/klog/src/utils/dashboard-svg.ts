@@ -30,7 +30,7 @@ const LIGHT: Palette = {
   label: "#333333",
   value: "#555555",
   divider: "#c8c8c8",
-  track: "#d8d8d8",   // clearly darker than the gray Raycast panel → visible as bar background
+  track: "#d8d8d8", // clearly darker than the gray Raycast panel → visible as bar background
   untagged: "#b4b4b4", // darker than track → readable as a filled segment
 };
 
@@ -42,7 +42,7 @@ const DARK: Palette = {
   label: "#c0c0c5",
   value: "#909095",
   divider: "#424246",
-  track: "#3e3e42",   // clearly lighter than the dark Raycast panel → visible as bar background
+  track: "#3e3e42", // clearly lighter than the dark Raycast panel → visible as bar background
   untagged: "#585860", // lighter than track → readable as a filled segment
 };
 
@@ -181,7 +181,9 @@ function makeCol(barX: number, barW: number, valX: number, idPfx: string, clip: 
 
       const clipId = `${idPfx}${clip.n++}`;
       // clipPath goes into <defs> so renderers can always resolve the ID reference
-      defs.push(`<clipPath id="${clipId}"><rect x="${barX}" y="${by}" width="${bw}" height="${BAR_H}" rx="${BAR_RX}"/></clipPath>`);
+      defs.push(
+        `<clipPath id="${clipId}"><rect x="${barX}" y="${by}" width="${bw}" height="${BAR_H}" rx="${BAR_RX}"/></clipPath>`,
+      );
 
       let sx = barX;
       const segRects = segs
@@ -301,5 +303,7 @@ export function generateDashboardSvg(data: DashboardData, appearance: "light" | 
     `<g transform="translate(${PAD_L},${contentY})">${lc.render()}</g>`,
     `<g transform="translate(${R_ORIGIN},${contentY})">${rc.render()}</g>`,
     `</svg>`,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

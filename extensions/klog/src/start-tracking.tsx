@@ -1,4 +1,4 @@
-import { closeMainWindow, LaunchProps, popToRoot, Toast } from "@raycast/api";
+import { closeMainWindow, LaunchProps, LocalStorage, popToRoot, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 
 import {
@@ -16,6 +16,12 @@ interface StartTrackingArguments {
   bookmark: string;
 }
 
+interface KlogTrackedSessionMeta {
+  bookmark: string;
+  summary: string;
+  startedAtMs: number;
+}
+
 export default async function Command(props: LaunchProps<{ arguments: StartTrackingArguments }>) {
   const { text, tags: rawTags, bookmark } = props.arguments;
 
@@ -29,6 +35,12 @@ export default async function Command(props: LaunchProps<{ arguments: StartTrack
 
   try {
     await startTracking(summary, normalizedBookmark);
+    const sessionMeta: KlogTrackedSessionMeta = {
+      bookmark: normalizedBookmark,
+      summary,
+      startedAtMs: Date.now(),
+    };
+    await LocalStorage.setItem("klog.trackedSessionMeta", JSON.stringify(sessionMeta));
 
     toast.style = Toast.Style.Success;
     toast.title = "Tracking started";

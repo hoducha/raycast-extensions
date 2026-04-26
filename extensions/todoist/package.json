@@ -667,6 +667,24 @@
       "title": "klog Path",
       "description": "Absolute path to the klog binary for time tracking integration. Leave empty to disable klog features.",
       "placeholder": "/opt/homebrew/bin/klog"
+    },
+    {
+      "name": "klogAvoidSilentCloseAfterHours",
+      "type": "textfield",
+      "required": false,
+      "title": "Avoid Silent Close After (Hours)",
+      "description": "When greater than 0, starting another task won't auto-close a tracked session older than this value.",
+      "default": "0",
+      "placeholder": "24"
+    },
+    {
+      "name": "klogSkipSessionsShorterThanMinutes",
+      "type": "textfield",
+      "required": false,
+      "title": "Skip Sessions Shorter Than (Minutes)",
+      "description": "When greater than 0, sessions shorter than this are removed after stopping tracking.",
+      "default": "0",
+      "placeholder": "5"
     }
   ],
   "dependencies": {

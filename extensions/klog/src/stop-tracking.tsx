@@ -1,10 +1,41 @@
-import { closeMainWindow, LaunchProps, popToRoot, Toast } from "@raycast/api";
+import { closeMainWindow, LaunchProps, LocalStorage, popToRoot, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 
-import { extractErrorMessage, hasNoOpenRange, normalizeBookmark, stopTracking } from "./klog";
+import {
+  extractErrorMessage,
+  getSkipSessionsShorterThanMinutes,
+  hasNoOpenRange,
+  normalizeBookmark,
+  restoreBookmarkSnapshot,
+  snapshotBookmarkFile,
+  stopTracking,
+} from "./klog";
 
 interface StopTrackingArguments {
   bookmark: string;
+}
+
+interface KlogTrackedSessionMeta {
+  bookmark: string;
+  summary: string;
+  startedAtMs: number;
+}
+
+function parseTrackedSessionMeta(raw: string | undefined): KlogTrackedSessionMeta | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as KlogTrackedSessionMeta;
+  } catch {
+    return undefined;
+  }
+}
+
+function getStartedAtMs(meta: KlogTrackedSessionMeta | undefined, bookmark: string): number | undefined {
+  if (!meta || meta.bookmark !== bookmark) {
+    return undefined;
+  }
+
+  return Number.isFinite(meta.startedAtMs) ? meta.startedAtMs : undefined;
 }
 
 export default async function Command(props: LaunchProps<{ arguments: StopTrackingArguments }>) {
@@ -15,16 +46,35 @@ export default async function Command(props: LaunchProps<{ arguments: StopTracki
   await toast.show();
 
   try {
+    const snapshot = await snapshotBookmarkFile(normalized);
     await stopTracking(normalized);
+
+    const minMinutes = getSkipSessionsShorterThanMinutes();
+    const rawMeta = await LocalStorage.getItem<string>("klog.trackedSessionMeta");
+    const parsedMeta = parseTrackedSessionMeta(rawMeta);
+    const startedAtMs = getStartedAtMs(parsedMeta, normalized);
+
+    if (minMinutes > 0 && typeof startedAtMs === "number") {
+      const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
+      if (elapsedMinutes < minMinutes) {
+        await restoreBookmarkSnapshot(normalized, snapshot);
+        toast.message = `Short session removed (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`;
+      }
+    } else if (minMinutes > 0) {
+      toast.message = `Stopped @${normalized} (short-session filter skipped: missing start metadata)`;
+    }
+
+    await LocalStorage.removeItem("klog.trackedSessionMeta");
 
     toast.style = Toast.Style.Success;
     toast.title = "Tracking stopped";
-    toast.message = `@${normalized}`;
+    toast.message = toast.message || `@${normalized}`;
 
     await closeMainWindow();
     popToRoot({ clearSearchBar: true });
   } catch (error) {
     if (hasNoOpenRange(error)) {
+      await LocalStorage.removeItem("klog.trackedSessionMeta");
       await showFailureToast("No open time range to stop.", {
         title: "Cannot stop tracking",
       });

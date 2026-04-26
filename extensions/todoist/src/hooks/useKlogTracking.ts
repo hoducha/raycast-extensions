@@ -10,11 +10,15 @@ import { useEffect } from "react";
 
 import {
   getKlogPath,
+  getAvoidSilentCloseAfterHours,
+  getSkipSessionsShorterThanMinutes,
   listBookmarks,
   findMatchingBookmark,
   buildKlogSummary,
   startTracking,
   stopTracking,
+  snapshotBookmarkFile,
+  restoreBookmarkSnapshot,
   extractErrorMessage,
   hasOpenRangeConflict,
   hasNoOpenRange,
@@ -24,9 +28,10 @@ type KlogTrackingState = {
   taskId: string;
   taskContent: string;
   bookmark: string;
+  startedAtMs?: number;
 };
 
-const EMPTY_STATE: KlogTrackingState = { taskId: "", taskContent: "", bookmark: "" };
+const EMPTY_STATE: KlogTrackingState = { taskId: "", taskContent: "", bookmark: "", startedAtMs: undefined };
 
 // ─── Full hook (TaskActions) ─────────────────────────────────────────
 
@@ -52,11 +57,71 @@ export function useKlogTracking() {
     return findMatchingBookmark(bookmarks, projectName);
   }
 
+  function getTrackedTaskStartMs(): number | undefined {
+    if (typeof trackedTask.startedAtMs === "number" && Number.isFinite(trackedTask.startedAtMs)) {
+      return trackedTask.startedAtMs;
+    }
+    return undefined;
+  }
+
+  async function maybeRollbackShortSession(
+    bookmark: string,
+    startedAtMs: number | undefined,
+    snapshot: string | undefined,
+  ) {
+    const minMinutes = getSkipSessionsShorterThanMinutes();
+    if (minMinutes <= 0 || !snapshot) return;
+
+    if (typeof startedAtMs !== "number") {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Unable to filter short session",
+        message: `Missing start time metadata for @${bookmark}`,
+      });
+      return;
+    }
+
+    const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
+    if (elapsedMinutes < minMinutes) {
+      await restoreBookmarkSnapshot(bookmark, snapshot);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Short session removed",
+        message: `Removed @${bookmark} session (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`,
+      });
+    }
+  }
+
   async function startKlog(taskId: string, taskContent: string, bookmark: string, labels: string[]) {
     // Auto-stop current tracking if switching to a different task
     if (trackedTask.taskId && trackedTask.taskId !== taskId) {
+      const previousStartMs = getTrackedTaskStartMs();
+      const maxSilentCloseHours = getAvoidSilentCloseAfterHours();
+
+      if (maxSilentCloseHours > 0) {
+        if (typeof previousStartMs !== "number") {
+          await showFailureToast(
+            `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because start time is unknown. Edit the klog file manually before starting a new task.`,
+            { title: "Cannot safely auto-close previous tracking" },
+          );
+          return;
+        }
+
+        const elapsedHours = (Date.now() - previousStartMs) / 3600000;
+        if (elapsedHours > maxSilentCloseHours) {
+          await showFailureToast(
+            `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because it has been running for ${elapsedHours.toFixed(1)}h. Edit the klog file manually before starting a new task.`,
+            { title: "Cannot safely auto-close previous tracking" },
+          );
+          return;
+        }
+      }
+
+      let previousSnapshot: string | undefined;
       try {
+        previousSnapshot = await snapshotBookmarkFile(trackedTask.bookmark);
         await stopTracking(trackedTask.bookmark);
+        await maybeRollbackShortSession(trackedTask.bookmark, previousStartMs, previousSnapshot);
       } catch (error) {
         // Ignore "no open range" (already stopped) but surface other errors
         if (!hasNoOpenRange(error)) {
@@ -73,7 +138,7 @@ export function useKlogTracking() {
 
     try {
       await startTracking(summary, bookmark);
-      setTrackedTask({ taskId, taskContent, bookmark });
+      setTrackedTask({ taskId, taskContent, bookmark, startedAtMs: Date.now() });
       await showToast({
         style: Toast.Style.Success,
         title: "Klog tracking started",
@@ -97,8 +162,13 @@ export function useKlogTracking() {
 
     await showToast({ style: Toast.Style.Animated, title: "Stopping klog tracking..." });
 
+    const startedAtMs = getTrackedTaskStartMs();
+    let snapshot: string | undefined;
+
     try {
+      snapshot = await snapshotBookmarkFile(trackedTask.bookmark);
       await stopTracking(trackedTask.bookmark);
+      await maybeRollbackShortSession(trackedTask.bookmark, startedAtMs, snapshot);
       setTrackedTask(EMPTY_STATE);
       await showToast({ style: Toast.Style.Success, title: "Klog tracking stopped" });
     } catch (error) {

@@ -4,11 +4,19 @@
  * Self-contained module – does not depend on the klog Raycast extension.
  * Requires the "klogPath" preference to be configured in the Todoist extension.
  */
-import { getPreferenceValues } from "@raycast/api";
 import { exec } from "child_process";
+import { readFile, writeFile } from "fs/promises";
 import { promisify } from "util";
 
+import { getPreferenceValues } from "@raycast/api";
+
 const execAsync = promisify(exec);
+
+type TodoistKlogPreferences = {
+  klogPath?: string;
+  klogAvoidSilentCloseAfterHours?: string;
+  klogSkipSessionsShorterThanMinutes?: string;
+};
 
 // ─── Preferences ─────────────────────────────────────────────────────
 
@@ -17,8 +25,26 @@ const execAsync = promisify(exec);
  * Returns undefined when not configured (klog integration disabled).
  */
 export function getKlogPath(): string | undefined {
-  const prefs = getPreferenceValues<{ klogPath?: string }>();
+  const prefs = getPreferenceValues<TodoistKlogPreferences>();
   return prefs.klogPath?.trim() || undefined;
+}
+
+function parseNonNegativeNumber(raw: string | undefined): number {
+  const parsed = Number.parseFloat(raw?.trim() ?? "");
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+export function getAvoidSilentCloseAfterHours(): number {
+  const prefs = getPreferenceValues<TodoistKlogPreferences>();
+  return parseNonNegativeNumber(prefs.klogAvoidSilentCloseAfterHours);
+}
+
+export function getSkipSessionsShorterThanMinutes(): number {
+  const prefs = getPreferenceValues<TodoistKlogPreferences>();
+  return parseNonNegativeNumber(prefs.klogSkipSessionsShorterThanMinutes);
 }
 
 // ─── CLI execution ───────────────────────────────────────────────────
@@ -49,7 +75,7 @@ async function execKlog(args: string[]): Promise<string> {
 export function extractErrorMessage(error: unknown): string {
   const err = error as { stderr?: string; stdout?: string; message?: string };
   // klog writes error messages to stdout (not stderr)
-  const output = (err.stderr?.trim() || err.stdout?.trim()) ?? "";
+  const output = getCombinedOutput(err, true);
 
   if (output) {
     return output
@@ -64,14 +90,20 @@ export function extractErrorMessage(error: unknown): string {
 
 export function hasOpenRangeConflict(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string };
-  const output = (err.stderr ?? "") + (err.stdout ?? "");
-  return output.includes("There is already an open range");
+  return getCombinedOutput(err).includes("There is already an open range");
 }
 
 export function hasNoOpenRange(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string };
-  const output = (err.stderr ?? "") + (err.stdout ?? "");
-  return output.includes("No open time range");
+  return getCombinedOutput(err).includes("No open time range");
+}
+
+function getCombinedOutput(err: { stderr?: string; stdout?: string }, trimStreams = false): string {
+  if (trimStreams) {
+    return (err.stderr?.trim() || err.stdout?.trim()) ?? "";
+  }
+
+  return (err.stderr ?? "") + (err.stdout ?? "");
 }
 
 // ─── Bookmark helpers ────────────────────────────────────────────────
@@ -134,4 +166,26 @@ export async function startTracking(summary: string, bookmark: string): Promise<
  */
 export async function stopTracking(bookmark: string): Promise<string> {
   return execKlog(["stop", `@${bookmark}`]);
+}
+
+/**
+ * Resolve a bookmark to its file path.
+ * Runs: klog bookmarks info @<bookmark>
+ */
+export async function resolveBookmarkPath(bookmark: string): Promise<string> {
+  const output = await execKlog(["bookmarks", "info", `@${bookmark}`]);
+  return output.trim();
+}
+
+export async function snapshotBookmarkFile(bookmark: string): Promise<string> {
+  const filePath = await resolveBookmarkPath(bookmark);
+  return readFile(filePath, "utf8");
+}
+
+/**
+ * Restore bookmark file content. Used to undo very short sessions.
+ */
+export async function restoreBookmarkSnapshot(bookmark: string, snapshot: string): Promise<void> {
+  const filePath = await resolveBookmarkPath(bookmark);
+  await writeFile(filePath, snapshot, "utf8");
 }
