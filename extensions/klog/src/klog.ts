@@ -44,6 +44,11 @@ export function hasNoOpenRange(error: unknown): boolean {
   return getCombinedOutput(err).includes("No open time range");
 }
 
+export function hasNoSuchRecord(error: unknown): boolean {
+  const err = error as { stderr?: string; stdout?: string };
+  return getCombinedOutput(err).includes("No such record");
+}
+
 function isCommandNotFound(error: unknown): boolean {
   const err = error as { stderr?: string; stdout?: string; message?: string };
   const output = getCombinedOutput(err);
@@ -187,12 +192,64 @@ export async function resolveBookmarkPath(bookmark: string): Promise<string> {
   return output.trim();
 }
 
-export async function snapshotBookmarkFile(bookmark: string): Promise<string> {
-  const filePath = await resolveBookmarkPath(bookmark);
-  return readFile(filePath, "utf8");
-}
+const INDENT_RE = /^(?:\t| {2,4})/;
+const TIME_RANGE_RE = /<?(\d{1,2}:\d{2})(am|pm)?>?\s*-\s*<?\d{1,2}:\d{2}(am|pm)?>?\s*(.*)/;
 
-export async function restoreBookmarkSnapshot(bookmark: string, snapshot: string): Promise<void> {
+/**
+ * Matches a double-indented line (entry summary continuation).
+ * Per the klog spec, continuation lines use double indentation.
+ */
+const DOUBLE_INDENT_RE = /^(?:\t\t| {4,8})\S/;
+
+/**
+ * Remove the last closed time range entry from a bookmark file,
+ * but only if its summary matches the expected text.
+ *
+ * This is used to undo a short session right after `klog stop`.
+ * The summary check prevents removing a wrong entry if the file
+ * was modified between `klog stop` and this call.
+ *
+ * Returns true if the entry was found and removed.
+ */
+export async function removeLastEntry(bookmark: string, expectedSummary?: string): Promise<boolean> {
   const filePath = await resolveBookmarkPath(bookmark);
-  await writeFile(filePath, snapshot, "utf8");
+  const content = await readFile(filePath, "utf8");
+  const lines = content.split("\n");
+
+  // Walk backwards to find the last closed time range entry
+  let entryIndex = -1;
+  let entrySummaryInline = "";
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!INDENT_RE.test(lines[i])) continue;
+    const afterIndent = lines[i].replace(INDENT_RE, "");
+    const match = TIME_RANGE_RE.exec(afterIndent);
+    if (match) {
+      entryIndex = i;
+      entrySummaryInline = match[4]?.trim() ?? "";
+      break;
+    }
+  }
+
+  if (entryIndex === -1) return false;
+
+  // Verify the summary matches what we expect (prevents removing wrong entry)
+  if (expectedSummary && entrySummaryInline !== expectedSummary) {
+    return false;
+  }
+
+  // Count any double-indented continuation lines that follow the entry
+  let endIndex = entryIndex;
+  for (let i = entryIndex + 1; i < lines.length; i++) {
+    if (DOUBLE_INDENT_RE.test(lines[i])) {
+      endIndex = i;
+    } else {
+      break;
+    }
+  }
+
+  // Remove the entry line and any continuation lines
+  lines.splice(entryIndex, endIndex - entryIndex + 1);
+  await writeFile(filePath, lines.join("\n"), "utf8");
+  return true;
 }

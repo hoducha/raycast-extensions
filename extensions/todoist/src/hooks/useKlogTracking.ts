@@ -17,21 +17,22 @@ import {
   buildKlogSummary,
   startTracking,
   stopTracking,
-  snapshotBookmarkFile,
-  restoreBookmarkSnapshot,
+  removeLastEntry,
   extractErrorMessage,
   hasOpenRangeConflict,
   hasNoOpenRange,
+  hasNoSuchRecord,
 } from "../helpers/klog";
 
 type KlogTrackingState = {
   taskId: string;
   taskContent: string;
   bookmark: string;
+  summary: string;
   startedAtMs?: number;
 };
 
-const EMPTY_STATE: KlogTrackingState = { taskId: "", taskContent: "", bookmark: "", startedAtMs: undefined };
+const EMPTY_STATE: KlogTrackingState = { taskId: "", taskContent: "", bookmark: "", summary: "", startedAtMs: undefined };
 
 // ─── Full hook (TaskActions) ─────────────────────────────────────────
 
@@ -64,13 +65,17 @@ export function useKlogTracking() {
     return undefined;
   }
 
-  async function maybeRollbackShortSession(
+  /**
+   * If the session was shorter than the configured minimum, remove the last
+   * entry from the klog file (the one that was just stopped).
+   */
+  async function maybeRemoveShortSession(
     bookmark: string,
     startedAtMs: number | undefined,
-    snapshot: string | undefined,
+    expectedSummary: string | undefined,
   ) {
     const minMinutes = getSkipSessionsShorterThanMinutes();
-    if (minMinutes <= 0 || !snapshot) return;
+    if (minMinutes <= 0) return;
 
     if (typeof startedAtMs !== "number") {
       await showToast({
@@ -83,12 +88,14 @@ export function useKlogTracking() {
 
     const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
     if (elapsedMinutes < minMinutes) {
-      await restoreBookmarkSnapshot(bookmark, snapshot);
-      await showToast({
-        style: Toast.Style.Success,
-        title: "Short session removed",
-        message: `Removed @${bookmark} session (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`,
-      });
+      const removed = await removeLastEntry(bookmark, expectedSummary);
+      if (removed) {
+        await showToast({
+          style: Toast.Style.Success,
+          title: "Short session removed",
+          message: `Removed @${bookmark} session (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`,
+        });
+      }
     }
   }
 
@@ -117,14 +124,12 @@ export function useKlogTracking() {
         }
       }
 
-      let previousSnapshot: string | undefined;
       try {
-        previousSnapshot = await snapshotBookmarkFile(trackedTask.bookmark);
         await stopTracking(trackedTask.bookmark);
-        await maybeRollbackShortSession(trackedTask.bookmark, previousStartMs, previousSnapshot);
+        await maybeRemoveShortSession(trackedTask.bookmark, previousStartMs, trackedTask.summary);
       } catch (error) {
-        // Ignore "no open range" (already stopped) but surface other errors
-        if (!hasNoOpenRange(error)) {
+        // Ignore "no open range" and "no such record" (no record for today) – proceed to start
+        if (!hasNoOpenRange(error) && !hasNoSuchRecord(error)) {
           await showFailureToast(extractErrorMessage(error), {
             title: "Failed to stop previous tracking",
           });
@@ -138,7 +143,7 @@ export function useKlogTracking() {
 
     try {
       await startTracking(summary, bookmark);
-      setTrackedTask({ taskId, taskContent, bookmark, startedAtMs: Date.now() });
+      setTrackedTask({ taskId, taskContent, bookmark, summary, startedAtMs: Date.now() });
       await showToast({
         style: Toast.Style.Success,
         title: "Klog tracking started",
@@ -163,17 +168,15 @@ export function useKlogTracking() {
     await showToast({ style: Toast.Style.Animated, title: "Stopping klog tracking..." });
 
     const startedAtMs = getTrackedTaskStartMs();
-    let snapshot: string | undefined;
 
     try {
-      snapshot = await snapshotBookmarkFile(trackedTask.bookmark);
       await stopTracking(trackedTask.bookmark);
-      await maybeRollbackShortSession(trackedTask.bookmark, startedAtMs, snapshot);
+      await maybeRemoveShortSession(trackedTask.bookmark, startedAtMs, trackedTask.summary);
       setTrackedTask(EMPTY_STATE);
       await showToast({ style: Toast.Style.Success, title: "Klog tracking stopped" });
     } catch (error) {
-      if (hasNoOpenRange(error)) {
-        // Already stopped externally – just clear the UI state
+      if (hasNoOpenRange(error) || hasNoSuchRecord(error)) {
+        // Already stopped externally or no record exists – just clear the UI state
         setTrackedTask(EMPTY_STATE);
         await showToast({ style: Toast.Style.Success, title: "Klog tracking stopped" });
       } else {

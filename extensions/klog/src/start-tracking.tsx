@@ -35,6 +35,7 @@ export default async function Command(props: LaunchProps<{ arguments: StartTrack
 
   try {
     await startTracking(summary, normalizedBookmark);
+
     const sessionMeta: KlogTrackedSessionMeta = {
       bookmark: normalizedBookmark,
       summary,

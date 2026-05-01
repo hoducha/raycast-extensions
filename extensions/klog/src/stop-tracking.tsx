@@ -5,9 +5,9 @@ import {
   extractErrorMessage,
   getSkipSessionsShorterThanMinutes,
   hasNoOpenRange,
+  hasNoSuchRecord,
   normalizeBookmark,
-  restoreBookmarkSnapshot,
-  snapshotBookmarkFile,
+  removeLastEntry,
   stopTracking,
 } from "./klog";
 
@@ -46,7 +46,6 @@ export default async function Command(props: LaunchProps<{ arguments: StopTracki
   await toast.show();
 
   try {
-    const snapshot = await snapshotBookmarkFile(normalized);
     await stopTracking(normalized);
 
     const minMinutes = getSkipSessionsShorterThanMinutes();
@@ -57,8 +56,10 @@ export default async function Command(props: LaunchProps<{ arguments: StopTracki
     if (minMinutes > 0 && typeof startedAtMs === "number") {
       const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
       if (elapsedMinutes < minMinutes) {
-        await restoreBookmarkSnapshot(normalized, snapshot);
-        toast.message = `Short session removed (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`;
+        const removed = await removeLastEntry(normalized, parsedMeta?.summary);
+        toast.message = removed
+          ? `Short session removed (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`
+          : `Stopped @${normalized} (short-session rollback skipped: no entry found)`;
       }
     } else if (minMinutes > 0) {
       toast.message = `Stopped @${normalized} (short-session filter skipped: missing start metadata)`;
@@ -76,6 +77,11 @@ export default async function Command(props: LaunchProps<{ arguments: StopTracki
     if (hasNoOpenRange(error)) {
       await LocalStorage.removeItem("klog.trackedSessionMeta");
       await showFailureToast("No open time range to stop.", {
+        title: "Cannot stop tracking",
+      });
+    } else if (hasNoSuchRecord(error)) {
+      await LocalStorage.removeItem("klog.trackedSessionMeta");
+      await showFailureToast(`No record found for @${normalized}. Create a record first.`, {
         title: "Cannot stop tracking",
       });
     } else {
