@@ -1,0 +1,14 @@
+default_source = "github"
+tools = ["claude", "antigravity", "cursor"]
+default_tool = "claude"
+sync_instructions = true
+canonical_instructions = "CLAUDE.md"
+dependencies = [
+    {handle = "hoducha/agent-skills/code-review", type = "skill"},
+    {handle = "hoducha/agent-skills/code-simplifier", type = "skill"},
+]
+
+[[source]]
+name = "github"
+type = "git"
+url = "https://github.com/{owner}/{repo}.git"

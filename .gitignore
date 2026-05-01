@@ -180,4 +180,8 @@ bun.lock
 scripts/internal/**
 .claude**
 .cursor/**
+.agent/
+AGENTS.md
+GEMINI.md
+
 klogreport
