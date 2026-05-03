@@ -108,6 +108,24 @@
       "description": "When greater than 0, sessions shorter than this are removed after stopping tracking.",
       "default": "0",
       "placeholder": "5"
+    },
+    {
+      "name": "defaultDateRange",
+      "type": "dropdown",
+      "required": false,
+      "title": "Default Date Range",
+      "description": "Default date range for the Show Report command",
+      "default": "today",
+      "data": [
+        { "title": "Today", "value": "today" },
+        { "title": "This Week", "value": "this-week" },
+        { "title": "This Month", "value": "this-month" },
+        { "title": "Last 30 Days", "value": "last-30-days" },
+        { "title": "Last 90 Days", "value": "last-90-days" },
+        { "title": "This Year", "value": "this-year" },
+        { "title": "Last Year", "value": "last-year" },
+        { "title": "All Time", "value": "all" }
+      ]
     }
   ],
   "dependencies": {

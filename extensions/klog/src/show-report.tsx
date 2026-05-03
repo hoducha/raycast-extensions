@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Detail, environment } from "@raycast/api";
+import { Action, ActionPanel, Detail, environment, getPreferenceValues } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { useMemo, useState } from "react";
 
@@ -31,7 +31,8 @@ const DATE_RANGE_LABELS: Record<DateRange, string> = {
 const MAX_DAILY_RECORDS = 30;
 
 export default function ShowReport() {
-  const [dateRange, setDateRange] = useState<DateRange>("this-week");
+  const { defaultDateRange } = getPreferenceValues<{ defaultDateRange?: DateRange }>();
+  const [dateRange, setDateRange] = useState<DateRange>(defaultDateRange || "today");
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const klogDir = getKlogDir();
 
@@ -104,6 +105,12 @@ export default function ShowReport() {
     return `![dashboard](${svgToDataUri(generateDashboardSvg(dashData, environment.appearance))})`;
   }, [allProjects, dateRange, selectedProject]);
 
+  const availableProjects = useMemo(() => {
+    if (!allProjects) return [];
+    const filter = getDateFilter(dateRange);
+    return getProjectTotals(filterProjects(allProjects, filter)).map((p) => p.name);
+  }, [allProjects, dateRange]);
+
   if (!klogDir) {
     return (
       <Detail
@@ -122,12 +129,6 @@ export default function ShowReport() {
     return <Detail markdown={`## Error\n\n${error.message}`} />;
   }
 
-  const availableProjects = useMemo(() => {
-    if (!allProjects) return [];
-    const filter = getDateFilter(dateRange);
-    return getProjectTotals(filterProjects(allProjects, filter)).map((p) => p.name);
-  }, [allProjects, dateRange]);
-
   const navigationTitle = selectedProject ? `${selectedProject} — ${DATE_RANGE_LABELS[dateRange]}` : undefined;
 
   return (
@@ -138,8 +139,8 @@ export default function ShowReport() {
       actions={
         <ActionPanel>
           <ActionPanel.Submenu title="Change Date Range">
-            {(Object.keys(DATE_RANGE_LABELS) as DateRange[]).map((range) => (
-              <Action key={range} title={DATE_RANGE_LABELS[range]} onAction={() => setDateRange(range)} />
+            {Object.entries(DATE_RANGE_LABELS).map(([range, label]) => (
+              <Action key={range} title={label} onAction={() => setDateRange(range as DateRange)} />
             ))}
           </ActionPanel.Submenu>
           <ActionPanel.Submenu title="Filter by Project">

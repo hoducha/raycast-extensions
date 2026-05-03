@@ -124,8 +124,8 @@ describe("normalizeBookmark", () => {
   it("lowercases the bookmark name", () => expect(normalizeBookmark("@Personal")).toBe("personal"));
   it("handles bookmark without @ prefix", () => expect(normalizeBookmark("Work")).toBe("work"));
   it("trims trailing whitespace", () => expect(normalizeBookmark("@home   ")).toBe("home"));
-  it("normalizes when there is no leading space (the common case)", () => expect(normalizeBookmark("@Work")).toBe("work"));
-
+  it("normalizes when there is no leading space (the common case)", () =>
+    expect(normalizeBookmark("@Work")).toBe("work"));
 });
 
 describe("normalizeTags", () => {
