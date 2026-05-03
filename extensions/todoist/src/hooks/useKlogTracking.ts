@@ -33,7 +33,106 @@ type KlogTrackingState = {
   startedAtMs?: number;
 };
 
-const EMPTY_STATE: KlogTrackingState = { taskId: "", taskContent: "", bookmark: "", summary: "", startedAtMs: undefined };
+const EMPTY_STATE: KlogTrackingState = {
+  taskId: "",
+  taskContent: "",
+  bookmark: "",
+  summary: "",
+  startedAtMs: undefined,
+};
+
+// ─── Shared Helpers ──────────────────────────────────────────────────────
+
+function getTaskStartMs(trackedTask: KlogTrackingState): number | undefined {
+  if (typeof trackedTask.startedAtMs === "number" && Number.isFinite(trackedTask.startedAtMs)) {
+    return trackedTask.startedAtMs;
+  }
+  return undefined;
+}
+
+/**
+ * If the session was shorter than the configured minimum, remove the last
+ * entry from the klog file (the one that was just stopped).
+ */
+async function maybeRemoveShortSession(
+  bookmark: string,
+  startedAtMs: number | undefined,
+  expectedSummary: string | undefined,
+) {
+  const minMinutes = getSkipSessionsShorterThanMinutes();
+  if (minMinutes <= 0) return;
+
+  if (typeof startedAtMs !== "number") {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Unable to filter short session",
+      message: `Missing start time metadata for @${bookmark}`,
+    });
+    return;
+  }
+
+  const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
+  if (elapsedMinutes < minMinutes) {
+    const removed = await removeLastEntry(bookmark, expectedSummary);
+    if (removed) {
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Short session removed",
+        message: `Removed @${bookmark} session (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`,
+      });
+    }
+  }
+}
+
+/**
+ * Safely stops the previously tracked task if needed.
+ * Ensures we don't silently close tasks that have been running longer than the user's preference.
+ * Bypasses auto-closing if the task is already manually stopped in the klog file.
+ * Returns true if it's safe to proceed with starting a new task, false if we should abort.
+ */
+async function safelyAutoStopPreviousTask(trackedTask: KlogTrackingState): Promise<boolean> {
+  const isCurrentlyRunning = await checkHasOpenRange(trackedTask.bookmark);
+  if (!isCurrentlyRunning) {
+    return true; // Already closed manually, safe to proceed
+  }
+
+  const previousStartMs = getTaskStartMs(trackedTask);
+  const maxSilentCloseHours = getAvoidSilentCloseAfterHours();
+
+  if (maxSilentCloseHours > 0) {
+    if (typeof previousStartMs !== "number") {
+      await showFailureToast(
+        `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because start time is unknown. Edit the klog file manually before starting a new task.`,
+        { title: "Cannot safely auto-close previous tracking" },
+      );
+      return false;
+    }
+
+    const elapsedHours = (Date.now() - previousStartMs) / 3600000;
+    if (elapsedHours > maxSilentCloseHours) {
+      await showFailureToast(
+        `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because it has been running for ${elapsedHours.toFixed(1)}h. Edit the klog file manually before starting a new task.`,
+        { title: "Cannot safely auto-close previous tracking" },
+      );
+      return false;
+    }
+  }
+
+  try {
+    await stopTracking(trackedTask.bookmark);
+    await maybeRemoveShortSession(trackedTask.bookmark, previousStartMs, trackedTask.summary);
+    return true;
+  } catch (error) {
+    // Ignore "no open range" and "no such record" (no record for today) – proceed to start
+    if (!hasNoOpenRange(error) && !hasNoSuchRecord(error)) {
+      await showFailureToast(extractErrorMessage(error), {
+        title: "Failed to stop previous tracking",
+      });
+      return false;
+    }
+    return true;
+  }
+}
 
 // ─── Full hook (TaskActions) ─────────────────────────────────────────
 
@@ -59,90 +158,11 @@ export function useKlogTracking() {
     return findMatchingBookmark(bookmarks, projectName);
   }
 
-  function getTrackedTaskStartMs(): number | undefined {
-    if (typeof trackedTask.startedAtMs === "number" && Number.isFinite(trackedTask.startedAtMs)) {
-      return trackedTask.startedAtMs;
-    }
-    return undefined;
-  }
-
-  /**
-   * If the session was shorter than the configured minimum, remove the last
-   * entry from the klog file (the one that was just stopped).
-   */
-  async function maybeRemoveShortSession(
-    bookmark: string,
-    startedAtMs: number | undefined,
-    expectedSummary: string | undefined,
-  ) {
-    const minMinutes = getSkipSessionsShorterThanMinutes();
-    if (minMinutes <= 0) return;
-
-    if (typeof startedAtMs !== "number") {
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Unable to filter short session",
-        message: `Missing start time metadata for @${bookmark}`,
-      });
-      return;
-    }
-
-    const elapsedMinutes = (Date.now() - startedAtMs) / 60000;
-    if (elapsedMinutes < minMinutes) {
-      const removed = await removeLastEntry(bookmark, expectedSummary);
-      if (removed) {
-        await showToast({
-          style: Toast.Style.Success,
-          title: "Short session removed",
-          message: `Removed @${bookmark} session (${elapsedMinutes.toFixed(1)}m < ${minMinutes}m)`,
-        });
-      }
-    }
-  }
-
   async function startKlog(taskId: string, taskContent: string, bookmark: string, labels: string[]) {
     // Auto-stop current tracking if switching to a different task
     if (trackedTask.taskId && trackedTask.taskId !== taskId) {
-      // First, check if the previously tracked task is still running in klog.
-      // If the user manually edited the file to close it, we should not enforce auto-close rules.
-      const isCurrentlyRunning = await checkHasOpenRange(trackedTask.bookmark);
-
-      if (isCurrentlyRunning) {
-        const previousStartMs = getTrackedTaskStartMs();
-        const maxSilentCloseHours = getAvoidSilentCloseAfterHours();
-
-        if (maxSilentCloseHours > 0) {
-          if (typeof previousStartMs !== "number") {
-            await showFailureToast(
-              `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because start time is unknown. Edit the klog file manually before starting a new task.`,
-              { title: "Cannot safely auto-close previous tracking" },
-            );
-            return;
-          }
-
-          const elapsedHours = (Date.now() - previousStartMs) / 3600000;
-          if (elapsedHours > maxSilentCloseHours) {
-            await showFailureToast(
-              `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because it has been running for ${elapsedHours.toFixed(1)}h. Edit the klog file manually before starting a new task.`,
-              { title: "Cannot safely auto-close previous tracking" },
-            );
-            return;
-          }
-        }
-
-        try {
-          await stopTracking(trackedTask.bookmark);
-          await maybeRemoveShortSession(trackedTask.bookmark, previousStartMs, trackedTask.summary);
-        } catch (error) {
-          // Ignore "no open range" and "no such record" (no record for today) – proceed to start
-          if (!hasNoOpenRange(error) && !hasNoSuchRecord(error)) {
-            await showFailureToast(extractErrorMessage(error), {
-              title: "Failed to stop previous tracking",
-            });
-            return;
-          }
-        }
-      }
+      const canProceed = await safelyAutoStopPreviousTask(trackedTask);
+      if (!canProceed) return;
     }
 
     const summary = buildKlogSummary(taskContent, labels);
@@ -174,7 +194,7 @@ export function useKlogTracking() {
 
     await showToast({ style: Toast.Style.Animated, title: "Stopping klog tracking..." });
 
-    const startedAtMs = getTrackedTaskStartMs();
+    const startedAtMs = getTaskStartMs(trackedTask);
 
     try {
       await stopTracking(trackedTask.bookmark);

@@ -159,7 +159,6 @@ export async function checkHasOpenRange(bookmark: string): Promise<boolean> {
   }
 }
 
-
 // ─── Summary builder ─────────────────────────────────────────────────
 
 /**

@@ -9,7 +9,20 @@
  *   - buildKlogSummary(), findMatchingBookmark()
  *   - getSkipSessionsShorterThanMinutes(), getAvoidSilentCloseAfterHours()
  */
+import { readFile, writeFile } from "fs/promises";
+
+import { getPreferenceValues } from "@raycast/api";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+import {
+  hasNoSuchRecord,
+  hasOpenRangeConflict,
+  hasNoOpenRange,
+  extractErrorMessage,
+  buildKlogSummary,
+  findMatchingBookmark,
+  removeLastEntry,
+} from "../helpers/klog";
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 
@@ -29,18 +42,6 @@ const { mockExecAsync } = vi.hoisted(() => ({
 vi.mock("util", () => ({
   promisify: () => mockExecAsync,
 }));
-
-import { readFile, writeFile } from "fs/promises";
-import {
-  hasNoSuchRecord,
-  hasOpenRangeConflict,
-  hasNoOpenRange,
-  extractErrorMessage,
-  buildKlogSummary,
-  findMatchingBookmark,
-  removeLastEntry,
-} from "../helpers/klog";
-import { getPreferenceValues } from "@raycast/api";
 
 const mockReadFile = readFile as unknown as ReturnType<typeof vi.fn>;
 const mockWriteFile = writeFile as unknown as ReturnType<typeof vi.fn>;
@@ -255,12 +256,7 @@ describe("removeLastEntry", () => {
   });
 
   it("does not remove a sibling entry that is not a continuation line", async () => {
-    const content = klgFile([
-      "2024-01-01",
-      "    8:00 - 9:00 First task",
-      "    9:05 - 10:00 Second task",
-      "",
-    ]);
+    const content = klgFile(["2024-01-01", "    8:00 - 9:00 First task", "    9:05 - 10:00 Second task", ""]);
     mockReadFile.mockResolvedValue(content);
 
     const removed = await removeLastEntry("work");
@@ -353,8 +349,8 @@ describe("checkHasOpenRange", () => {
   });
 
   it("returns true when klog json returns an open range record", async () => {
-    mockExecAsync.mockResolvedValueOnce({ 
-      stdout: JSON.stringify({ records: [{ entries: [{ type: "open-range" }] }], errors: null }) 
+    mockExecAsync.mockResolvedValueOnce({
+      stdout: JSON.stringify({ records: [{ entries: [{ type: "open-range" }] }], errors: null }),
     });
 
     const { checkHasOpenRange } = await import("../helpers/klog");
@@ -362,8 +358,8 @@ describe("checkHasOpenRange", () => {
   });
 
   it("returns false when klog json returns no records", async () => {
-    mockExecAsync.mockResolvedValueOnce({ 
-      stdout: JSON.stringify({ records: [], errors: null }) 
+    mockExecAsync.mockResolvedValueOnce({
+      stdout: JSON.stringify({ records: [], errors: null }),
     });
 
     const { checkHasOpenRange } = await import("../helpers/klog");
@@ -377,4 +373,3 @@ describe("checkHasOpenRange", () => {
     expect(await checkHasOpenRange("work")).toBe(false);
   });
 });
-
