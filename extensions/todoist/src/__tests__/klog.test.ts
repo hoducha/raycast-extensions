@@ -22,8 +22,12 @@ vi.mock("child_process", () => ({
   exec: vi.fn(),
 }));
 
+const { mockExecAsync } = vi.hoisted(() => ({
+  mockExecAsync: vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+}));
+
 vi.mock("util", () => ({
-  promisify: () => vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+  promisify: () => mockExecAsync,
 }));
 
 import { readFile, writeFile } from "fs/promises";
@@ -340,3 +344,37 @@ describe("getAvoidSilentCloseAfterHours", () => {
     expect(getAvoidSilentCloseAfterHours()).toBe(24);
   });
 });
+
+// ── checkHasOpenRange ────────────────────────────────────────────────────────
+
+describe("checkHasOpenRange", () => {
+  beforeEach(async () => {
+    mockGetPreferenceValues.mockReturnValue({ klogPath: "/usr/local/bin/klog" });
+  });
+
+  it("returns true when klog json returns an open range record", async () => {
+    mockExecAsync.mockResolvedValueOnce({ 
+      stdout: JSON.stringify({ records: [{ entries: [{ type: "open-range" }] }], errors: null }) 
+    });
+
+    const { checkHasOpenRange } = await import("../helpers/klog");
+    expect(await checkHasOpenRange("work")).toBe(true);
+  });
+
+  it("returns false when klog json returns no records", async () => {
+    mockExecAsync.mockResolvedValueOnce({ 
+      stdout: JSON.stringify({ records: [], errors: null }) 
+    });
+
+    const { checkHasOpenRange } = await import("../helpers/klog");
+    expect(await checkHasOpenRange("work")).toBe(false);
+  });
+
+  it("returns false when klog json command fails (e.g. invalid file)", async () => {
+    mockExecAsync.mockRejectedValueOnce(new Error("File not found"));
+
+    const { checkHasOpenRange } = await import("../helpers/klog");
+    expect(await checkHasOpenRange("work")).toBe(false);
+  });
+});
+

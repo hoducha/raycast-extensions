@@ -22,6 +22,7 @@ import {
   hasOpenRangeConflict,
   hasNoOpenRange,
   hasNoSuchRecord,
+  checkHasOpenRange,
 } from "../helpers/klog";
 
 type KlogTrackingState = {
@@ -102,38 +103,44 @@ export function useKlogTracking() {
   async function startKlog(taskId: string, taskContent: string, bookmark: string, labels: string[]) {
     // Auto-stop current tracking if switching to a different task
     if (trackedTask.taskId && trackedTask.taskId !== taskId) {
-      const previousStartMs = getTrackedTaskStartMs();
-      const maxSilentCloseHours = getAvoidSilentCloseAfterHours();
+      // First, check if the previously tracked task is still running in klog.
+      // If the user manually edited the file to close it, we should not enforce auto-close rules.
+      const isCurrentlyRunning = await checkHasOpenRange(trackedTask.bookmark);
 
-      if (maxSilentCloseHours > 0) {
-        if (typeof previousStartMs !== "number") {
-          await showFailureToast(
-            `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because start time is unknown. Edit the klog file manually before starting a new task.`,
-            { title: "Cannot safely auto-close previous tracking" },
-          );
-          return;
+      if (isCurrentlyRunning) {
+        const previousStartMs = getTrackedTaskStartMs();
+        const maxSilentCloseHours = getAvoidSilentCloseAfterHours();
+
+        if (maxSilentCloseHours > 0) {
+          if (typeof previousStartMs !== "number") {
+            await showFailureToast(
+              `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because start time is unknown. Edit the klog file manually before starting a new task.`,
+              { title: "Cannot safely auto-close previous tracking" },
+            );
+            return;
+          }
+
+          const elapsedHours = (Date.now() - previousStartMs) / 3600000;
+          if (elapsedHours > maxSilentCloseHours) {
+            await showFailureToast(
+              `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because it has been running for ${elapsedHours.toFixed(1)}h. Edit the klog file manually before starting a new task.`,
+              { title: "Cannot safely auto-close previous tracking" },
+            );
+            return;
+          }
         }
 
-        const elapsedHours = (Date.now() - previousStartMs) / 3600000;
-        if (elapsedHours > maxSilentCloseHours) {
-          await showFailureToast(
-            `Cannot auto-close tracked task "${trackedTask.taskContent}" @${trackedTask.bookmark} because it has been running for ${elapsedHours.toFixed(1)}h. Edit the klog file manually before starting a new task.`,
-            { title: "Cannot safely auto-close previous tracking" },
-          );
-          return;
-        }
-      }
-
-      try {
-        await stopTracking(trackedTask.bookmark);
-        await maybeRemoveShortSession(trackedTask.bookmark, previousStartMs, trackedTask.summary);
-      } catch (error) {
-        // Ignore "no open range" and "no such record" (no record for today) – proceed to start
-        if (!hasNoOpenRange(error) && !hasNoSuchRecord(error)) {
-          await showFailureToast(extractErrorMessage(error), {
-            title: "Failed to stop previous tracking",
-          });
-          return;
+        try {
+          await stopTracking(trackedTask.bookmark);
+          await maybeRemoveShortSession(trackedTask.bookmark, previousStartMs, trackedTask.summary);
+        } catch (error) {
+          // Ignore "no open range" and "no such record" (no record for today) – proceed to start
+          if (!hasNoOpenRange(error) && !hasNoSuchRecord(error)) {
+            await showFailureToast(extractErrorMessage(error), {
+              title: "Failed to stop previous tracking",
+            });
+            return;
+          }
         }
       }
     }

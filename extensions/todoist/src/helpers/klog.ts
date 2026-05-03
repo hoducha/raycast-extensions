@@ -144,6 +144,22 @@ export function findMatchingBookmark(bookmarks: string[], projectName: string): 
   return bookmarks.find((b) => b.toLowerCase() === normalized);
 }
 
+/**
+ * Check if a bookmark currently has an open time range.
+ * Runs: klog json --entry-type open-range @<bookmark>
+ */
+export async function checkHasOpenRange(bookmark: string): Promise<boolean> {
+  try {
+    const output = await execKlog(["json", "--entry-type", "open-range", `@${bookmark}`]);
+    const parsed = JSON.parse(output);
+    return parsed.records && parsed.records.length > 0;
+  } catch {
+    // If there's an error (e.g. invalid file or JSON parse error), assume no open range.
+    return false;
+  }
+}
+
+
 // ─── Summary builder ─────────────────────────────────────────────────
 
 /**
